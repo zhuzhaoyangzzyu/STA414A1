@@ -1,0 +1,11 @@
+Research Question: What is the diurnal pattern of reaction time? 
+Subjects: 40 students from STA490 class
+Methods: Linear Mixed Model
+Procedure: Data Cleaning -> EDA -> Assumption Check -> Modelling -> Find the best suitable model -> Draw conclusions.
+
+Conclusions:
+The result of our study reveals that students from STA490 class tend to have lower reaction time right before sleep and 
+six hours before sleep comparing to waking up time. And one unit increasing in hungry level six hours after waking up will 
+decrease your overall reaction time much more than one unit increasing in hungry level at waking up time for students from 
+STA490 class. However, one unit increasing in hungry level 12 hours after waking up will decrease your overall reaction time 
+much less than the one unit increasing in hungry level at waking up time for students from STA490 class.

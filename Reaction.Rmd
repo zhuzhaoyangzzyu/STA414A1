@@ -1,0 +1,277 @@
+---
+title: "Reaction Time"
+author: "zhu,zhaoyang"
+date: "2018.10.3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(gridExtra)
+library(lme4)
+library(nlme)
+library(sjPlot)
+rawdata = read_csv("Fixedcsv.csv",col_types = cols(Time = col_time(format = "%H:%M")))
+```
+
+
+```{r,echo=FALSE,eval=TRUE}
+# data cleaning and check NA
+apply(is.na(rawdata),MARGIN=2,FUN=sum) # count the number of missing values
+rawdata$Stimulant[rawdata$Stimulant == "Yes"] = "yes" # convert typo Yes to yes
+# there are some night,neither type in NightorMorning
+# use mean of the night, neither group. The type of the column is character
+nightmean = floor(mean(as.numeric(filter(rawdata,NightorMorning <= 41)$NightorMorning))) # the mean of night
+neithermean = floor(mean(as.numeric(filter(rawdata,NightorMorning <= 58 & NightorMorning >= 42)$NightorMorning))) # the mean of neither
+rawdata$NightorMorning[rawdata$NightorMorning == "night"] = nightmean # set night to mean of night 
+rawdata$NightorMorning[rawdata$NightorMorning == "neither"] = neithermean # set neither to mean of neither 
+rawdata$NightorMorning = as.numeric(rawdata$NightorMorning) # convert from character to numeric
+
+
+# look at the frequency table of Hungry and Fatigued, we can see that several groups have only few obervations, so
+# I decide to keep them as quantitative variables
+#table(rawdata$Hungry)
+#table(rawdata$Fatigued)
+# covert all the categorical variables to factors
+
+
+# dealing with missing values
+# thoughts: replace every NA in numerical column with the mean. so it does not affect our result very much.
+# replace every NA in categorical column with the majority, missing values in Protocal will simply replaced by no.
+rawdata$Measurement = as.numeric(rawdata$Measurement)
+rawdata2 = mutate(rawdata,cattime = ifelse(rawdata$Measurement > 4, rawdata$Measurement - 4, rawdata$Measurement))
+
+rawdata3 = rawdata2
+
+rawdata3$Reaction[is.na(rawdata3$Reaction)] = mean(rawdata3$Reaction,na.rm = TRUE)
+
+rawdata3$Stimulant[is.na(rawdata3$Stimulant)] = "no"
+
+rawdata3$Hungry[is.na(rawdata3$Hungry)] = 5
+
+rawdata3$Fatigued[is.na(rawdata3$Fatigued)] = 3
+
+rawdata3$Sleep[is.na(rawdata3$Sleep)] = 8
+
+rawdata3$NightorMorning[is.na(rawdata3$NightorMorning)] = 44
+
+rawdata3$Ill[is.na(rawdata3$Ill)] = 'no'
+
+rawdata3$Protocal[is.na(rawdata3$Protocal)] = 'no'
+
+rawdata3$Day[is.na(rawdata3$Day)][1:4] = 'busy'
+
+rawdata3$Day[is.na(rawdata3$Day)] = 'light'
+
+
+rawdata3$id = as.factor(rawdata3$id) 
+rawdata3$cattime = as.factor(rawdata3$cattime) 
+rawdata3$Measurement = as.factor(rawdata3$Measurement)
+rawdata3$Stimulant = as.factor(rawdata3$Stimulant)
+rawdata3$Day = as.factor(rawdata3$Day)
+rawdata3$Protocal = as.factor(rawdata3$Protocal)
+rawdata3$Ill = as.factor(rawdata3$Ill)
+rawdata2$id = as.factor(rawdata2$id) 
+rawdata2$Measurement = as.factor(rawdata2$Measurement)
+rawdata2$Stimulant = as.factor(rawdata2$Stimulant)
+rawdata2$Day = as.factor(rawdata2$Day)
+rawdata2$Protocal = as.factor(rawdata2$Protocal)
+rawdata2$Ill = as.factor(rawdata2$Ill)
+rawdata2$cattime = as.factor(rawdata2$cattime) 
+summary(rawdata3)
+```
+
+
+# Construct the model with missing values
+
+```{r,echo=TRUE,eval=TRUE}
+model = lmer(data=rawdata2, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day  + (1|id))
+summary(model)
+```
+
+We only have 235 obervations included in this model, but we have total of 312 obervations.
+
+# Construct the model with no missing values
+```{r,echo=TRUE,eval=TRUE}
+rawdata3$cattime = relevel(rawdata3$cattime,ref=1) 
+fullmodel = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day, random = ~ 1|id)
+summary(fullmodel)
+rawdata3$cattime = relevel(rawdata3$cattime,ref=2)
+fullmodel2 = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day, random = ~ 1|id)
+summary(fullmodel2)
+rawdata3$cattime = relevel(rawdata3$cattime,ref=4)
+fullmodel3 = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day, random = ~ 1|id)
+summary(fullmodel3)
+
+```
+
+Since the variable measurement is similar to the variable cattime, I decide to not include measurement in our model.
+
+The estimation before and after we impute values for missing data:
+
+Illyes: -0.041447 to -0.0369391, p-value: 0.03228 to 0.05403
+
+cattime2: -0.018513 to -0.0181796, p-value: 0.04199 to 0.05210
+
+cattime3: -0.013385 to -0.0230441, p-value: 0.15303 to 0.01396
+
+cattime4:  -0.017921 to -0.0241516, p-values: 0.06311 to 0.01038
+
+cattime4 and cattime3 change from not significant to significant.
+
+cattime2 and Illyes change from significant to not significant.
+
+From the correlation clause, we can see that we have moderate correlation between time and Hungry.  Therefore, I decide to add an interaction between Hungry and time to the model.
+
+
+## Check for assumptions
+
+1.The explanatory variables are related linearly to the response.
+
+2.The errors have constant variance.
+
+3.The errors are independent.
+
+4.The errors are Normally distributed.
+
+```{r,echo=TRUE,eval=TRUE}
+grid.arrange(plot(model, main = "Missing value Model"),plot(fullmodel, main = "Full Model"),ncol = 2)
+par(mfrow = c(1,2))
+qqnorm(residuals(model), main = "Missing value Model")
+qqline(residuals(model))
+qqnorm(residuals(fullmodel),main = "Full Model")
+qqline(residuals(fullmodel))
+```
+
+
+1.Seems variance goes up then down but just a little bit, looks fairly OK to me.
+
+2.No clear pattern seems independency satisfied.
+
+3.Seems a little bit heavy tailed.
+
+4.From EDA we can see that most of our explanatory variabels are related linearly to the response.
+
+We have some problems with our normality assumption and constant variance assumption, since linear mixed model is robust, I do not worry too much about the heavy tail distribution. The model with imputation fits data as good as the model with missing data.
+
+
+## fit model with interaction term between hungry and time only
+```{r,echo=TRUE,eval=TRUE}
+rawdata3$cattime = rawdata3$cattime %>% relevel(ref=1)
+oneInteraction = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry, random = ~ 1|id)
+summary(oneInteraction)
+plot_model(oneInteraction,type="pred",terms=c("Hungry","cattime"),axis.title=c("hungry","Reaction Time"),title="Interaction Between Time and Hungry",legend.title = "Time categories")
+```
+
+
+From our likelihood ratio test result, we can see that we reject H0 with p-value 0.0206, therefore, we can conclude that our one interaction model is better than our full model.
+
+From random effects variance and residual clause, we can see that the standard deviation between each student is 0.0773. We can also see that the standard deviation within each student is 0.05358, this means that each student varies more than each individual measurement within students.
+
+From p-value clause, our intercept is significant and also we have eight significant coefficients associated with independent variables: 
+
+
+1. Fatigued level with p-value < 0.0001
+
+2. Hungry level with p-value 0.00779
+
+3. time group 2 with p-value 0.00055
+
+4. time group 3 with p-value 0.01009
+
+5. time group 4 with p-value 0.02213
+
+6. Interaction between time group 2 and Hungry level with p-value 0.00211
+
+7. Interaction of Hungry with time group 3 with p-value 0.03021
+
+8. Ill group yes with p-value 0.03813
+
+We have five more significant coefficent than the additive model.
+
+
+##Fit model with only time 
+
+```{r,echo=TRUE,eval=TRUE}
+reduced = lme(data=rawdata3, Reaction ~ cattime, random = ~1|id)
+summary(reduced)
+anova(reduced,oneInteraction)
+
+```
+
+
+From the result of likelihood ratio test, we have strong evidence against our H0 with p-value < 0.0001. Thus, we can conclude that model with one interaction is better than reduced model.
+
+## fit model with interaction terms
+
+```{r,echo=TRUE,eval=TRUE}
+interactionmodel = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + Fatigued * cattime + cattime * Day + cattime*NightorMorning + cattime*Hungry + Stimulant * cattime + Ill*cattime + Protocal * cattime + Sleep * cattime, random = ~ 1|id)
+summary(interactionmodel)
+anova(oneInteraction,interactionmodel)
+```
+
+
+From our anova and the likelihood ratio test, we can see that we fail to reject our H0 with 0.9167 implies that one interaction model fits as good as our interactive model.
+
+```{r,echo=TRUE,eval=TRUE}
+FatiguedInteraction = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry + cattime*Fatigued, random = ~ 1|id)
+summary(FatiguedInteraction)
+```
+Not Fatigued time interaction
+
+```{r,echo=TRUE,eval=TRUE}
+DayInteraction = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry + cattime*Day, random = ~ 1|id)
+summary(DayInteraction)
+```
+No day cattime interaction
+
+```{r,echo=TRUE,eval=TRUE}
+IllInteraction = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry + cattime*Ill, random = ~ 1|id)
+summary(IllInteraction)
+```
+No interaction between ill and cattime
+
+```{r,echo=TRUE,eval=TRUE}
+NoMInteraction = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry + cattime*NightorMorning, random = ~ 1|id)
+summary(NoMInteraction)
+```
+No interaction between NightorMorning and cattime
+
+```{r,echo=TRUE,eval=TRUE}
+StimulantInteraction = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry + cattime*Stimulant, random = ~ 1|id)
+summary(StimulantInteraction)
+```
+
+No interaction between cattime and Stimulant
+
+```{r,echo=TRUE,eval=TRUE}
+ProtocalInteraction = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry + cattime*Protocal, random = ~ 1|id)
+summary(ProtocalInteraction)
+```
+
+No interaction between cattime and Protocal
+
+```{r,echo=TRUE,eval=TRUE}
+SleepInteraction = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry + cattime*Sleep, random = ~ 1|id)
+summary(FatiguedInteraction)
+```
+
+No interaction between cattime and Sleep
+
+```{r,echo=TRUE,eval=TRUE}
+rawdata3$cattime = rawdata3$cattime %>% relevel(2)
+oneInteraction2 = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry, random = ~ 1|id)
+summary(oneInteraction2)
+plot_model(oneInteraction2,type="pred",terms=c("Hungry","cattime"),axis.title=c("hungry","Reaction Time"),title="Interaction Between Time and Hungry",legend.title = "Time categories")
+```
+
+Change the reference group
+
+```{r,echo=TRUE,eval=TRUE}
+rawdata3$cattime = rawdata3$cattime %>% relevel(4)
+oneInteraction4 = lme(data=rawdata3, Reaction ~ NightorMorning + Hungry + Stimulant + Ill + Protocal + Sleep + cattime + Fatigued + Day + cattime*Hungry, random = ~ 1|id)
+summary(oneInteraction4)
+plot_model(oneInteraction4,type="pred",terms=c("Hungry","cattime"),axis.title=c("hungry","Reaction Time"),title="Interaction Between Time and Hungry",legend.title = "Time categories")
+```

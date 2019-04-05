@@ -1,0 +1,253 @@
+---
+title: "project"
+author: "zhu,zhaoyang"
+date: "2019.1.22"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+if (! require(readr)){
+  install.packages("readr")
+}
+if (! require(tidyverse)){
+  install.packages("tidyverse")
+}
+if (! require(coin)){
+  install.packages("coin")
+}
+if (! require(dplyr)){
+  install.packages("dplyr")
+}
+if (! require(rcompanion)){
+  install.packages("rcompanion")
+}
+if (! require(MASS)){
+  install.packages("MASS")
+  }
+if (! require(AER)){
+  install.packages("AER")
+}
+knitr::opts_chunk$set(echo = TRUE)
+data = read_csv("Modified1.csv", 
+                col_types = cols(`Channel` = col_skip()))
+```
+
+# First look at the data.
+
+```{r,echo=TRUE,eval=TRUE}
+head(data)
+group = as.factor(data$Group)
+data2 = data
+data2$Group = group
+data2$Duration = as.numeric(data2$Duration)
+data2$Duration[data2$Duration == 0] = NA
+data2$Subject = as.factor(data2$Subject)
+data2 = filter(data2, !is.na(Duration))
+data2 = data2[data2$Duration >= 5, ]
+summary(data2)
+par(mfrow = c(1,2))
+summary(data2$Subject)
+```
+
+# EDA of the data after cleaning.
+
+```{r,echo=TRUE,eval=TRUE}
+subject = c(9,10,16,35,36,43,45,55,68,69,70,83)
+
+# ave duration
+aveDuration = c()
+for (i in subject){
+  this = mean(data2$Duration[data2$Subject == i], na.rm = TRUE)
+  if (is.na(this)){
+    this = 0
+  }
+  aveDuration = c(aveDuration, this)
+  
+}
+Frequency = c()
+for (i in subject){
+  count = length(data2$Subject[data2$Subject == i])
+  if (count == 1){
+    count = 0
+  }
+  Frequency = c(Frequency, count)
+  
+}
+RR = c()
+for ( i in subject){
+  RR = c(RR, data$RR[data$Subject == i][1])
+}
+
+aveDurationData = tibble("aveDuration" = aveDuration, "subject" = subject, "frequency" = Frequency, "RR" = RR, "group" = c("S","S","S","T","T","M","M","M","L","L","L","T"))
+aveDurationData$group = as.factor(aveDurationData$group)
+aveDurationData$subject = factor(aveDurationData$subject, c(9,10,16,35,36,83,43,45,55,68,69,70), order = TRUE)
+ggplot(data=aveDurationData) + geom_point(aes(x = group, y = aveDuration)) + ylab("average seizure duration")
+ggplot(data=aveDurationData) + geom_point(aes(x= subject, y = frequency))
+ggplot(data=aveDurationData) + geom_point(aes(x = group, y = frequency))
+ggplot(data=aveDurationData) + geom_point(aes(x = subject, y = RR)) + ylab("Righting Reflex")
+ggplot(data=aveDurationData) + geom_boxplot(aes(x = subject, y = aveDuration)) + ylab("average seizure duration")
+```
+
+From the plots we can see that potential ouliers subjec 10 and subject 45
+
+at the same time, there is difference in groups.
+
+
+# linear regression models
+
+```{r, echo=TRUE, eval = TRUE}
+model1 = lm(aveDurationData$frequency ~ aveDurationData$group + aveDurationData$RR)
+model2 = lm(aveDurationData$aveDuration ~ aveDurationData$group + aveDurationData$RR)
+plot(model2)
+plot(model1)
+```
+
+First try linear regression on dependent variables.
+
+From the residual and normal QQ plots, we can see that our assumptions are violated.
+
+# Non-parametric tests
+```{r, echo=TRUE, eval=TRUE}
+# non-parametric tests
+median_test(data = aveDurationData, aveDuration ~ group) # No evidence showing that the group medians are different
+median_test(data = aveDurationData, frequency ~ group) # No evidence showing that the group medians are different
+pairwisePermutationTest(data = aveDurationData, aveDuration ~group) # No evidence showing that the group are different
+pairwisePermutationTest(data = aveDurationData, frequency ~group) # No evidence showing that the group are different
+kruskal.test(data=aveDurationData, frequency ~ group) # No evidence showing that the group are different
+kruskal.test(data=aveDurationData, aveDuration ~ group) # No evidence showing that the group are different
+```
+
+Since our data is not normal distributed, we use some non-parametric tests:
+
+Moon’s median test is a median based test, the influence of outliers is limited in this test. 
+
+Pairwise permutation test resamples the observed data many times to determine a p-value for the test, it is an extension of permutation test to multiple groups.  
+
+Kruskal–Wallis test is a rank-based test.
+
+Assumptions are :
+
+1. Dependent variable is ordinal, interval, or ratio.
+
+2. Independent variable is a factor with levels indicating groups.
+
+3. Observations between groups are independent.  
+
+And we satisfied them all.
+
+```{r, echo=TRUE, eval=TRUE}
+# poisson regression on frequency
+model3 = glm(aveDurationData$frequency ~ aveDurationData$group + aveDurationData$RR, family = "poisson")
+summary(model3)
+aveDurationData$group = relevel(aveDurationData$group, ref = "S")
+model4 = glm(aveDurationData$frequency ~ aveDurationData$group + aveDurationData$RR, family = "poisson")
+summary(model4)
+aveDurationData$group = relevel(aveDurationData$group, ref = "M")
+model5 = glm(aveDurationData$frequency ~ aveDurationData$group + aveDurationData$RR, family = "poisson")
+summary(model5)
+
+# poisson regression with outliers but no righting reflex
+model6 = glm(aveDurationData$frequency ~ aveDurationData$group, family = "poisson")
+summary(model6)
+aveDurationData$group = relevel(aveDurationData$group, ref = "S")
+model7 = glm(aveDurationData$frequency ~ aveDurationData$group, family = "poisson")
+summary(model7)
+aveDurationData$group = relevel(aveDurationData$group, ref = "L")
+model8 = glm(aveDurationData$frequency ~ aveDurationData$group, family = "poisson")
+summary(model8)
+
+# poisson regression with subject 45 and right reflex but remove subject 10
+no_ten = filter(aveDurationData, frequency != 43)
+model9 = glm(data = no_ten, frequency ~ group + RR, family = "poisson")
+summary(model9)
+no_ten$group = relevel(no_ten$group, ref = "M")
+model10 = glm(data = no_ten, frequency ~ group + RR, family = "poisson")
+summary(model10)
+no_ten$group = relevel(no_ten$group, ref = "S")
+model11 = glm(data = no_ten, frequency ~ group + RR, family = "poisson")
+summary(model11)
+
+# poisson regression with subject 45 but not RR or subject 10
+model9 = glm(data = no_ten, frequency ~ group, family = "poisson")
+summary(model9)
+no_ten$group = relevel(no_ten$group, ref = "M")
+model10 = glm(data = no_ten, frequency ~ group, family = "poisson")
+summary(model10)
+no_ten$group = relevel(no_ten$group, ref = "L")
+model11 = glm(data = no_ten, frequency ~ group, family = "poisson")
+summary(model11)
+
+# take out the outlier subject 45
+no_outlier_data = filter(aveDurationData, frequency != max(frequency))
+# poisson regression with no outlier 45
+poisson_no_out_one = glm(data = no_outlier_data, frequency ~ group + RR, family = "poisson")
+summary(poisson_no_out_one)
+no_outlier_data$group = relevel(no_outlier_data$group, ref = "M")
+poisson_no_out_two = glm(data = no_outlier_data, frequency ~ group + RR, family = "poisson")
+summary(poisson_no_out_two)
+no_outlier_data$group = relevel(no_outlier_data$group, ref = "S")
+poisson_no_out_three = glm(data = no_outlier_data, frequency ~ group + RR, family = "poisson")
+summary(poisson_no_out_three)
+
+# No outlier 45 and 10 but with Righting Reflex
+no_outlier_data_two = filter(no_outlier_data, frequency != 43)
+poisson_no_out_four = glm(data = no_outlier_data_two, frequency ~ group + RR, family = "poisson")
+summary(poisson_no_out_four)
+no_outlier_data_two$group = relevel(no_outlier_data_two$group, ref = "M")
+poisson_no_out_five = glm(data = no_outlier_data_two, frequency ~ group + RR, family = "poisson")
+summary(poisson_no_out_five)
+no_outlier_data_two$group = relevel(no_outlier_data_two$group, ref = "L")
+poisson_no_out_six = glm(data = no_outlier_data_two, frequency ~ group + RR, family = "poisson")
+summary(poisson_no_out_six)
+
+# No righting reflex and subject 45 but with subject 10
+poisson_no_out_seven = glm(data = no_outlier_data, frequency ~ group, family = "poisson")
+summary(poisson_no_out_seven)
+no_outlier_data$group = relevel(no_outlier_data$group, ref = "M")
+poisson_no_out_eight = glm(data = no_outlier_data, frequency ~ group, family = "poisson")
+summary(poisson_no_out_eight)
+no_outlier_data$group = relevel(no_outlier_data$group, ref = "S")
+poisson_no_out_nine = glm(data = no_outlier_data, frequency ~ group, family = "poisson")
+summary(poisson_no_out_nine)
+```
+
+Since our dependent variable frequency is a count, we can fit a poisson regression.
+
+we split into cases to examine the impacts of outliers and righting reflex on our Poisson regression model.
+
+We change reference group to compare different groups.
+
+
+# Linear regression
+```{r, echo=TRUE, eval=TRUE}
+# linear regression with no outlier
+# still no difference between groups
+linear_no_out = lm(data = no_outlier_data_two, aveDuration ~ group + RR)
+plot(linear_no_out)
+```
+
+Fit linear regression model again to see if assumptions are satisifed without outliers.
+
+However, assumptions are still violated
+
+
+# Negative Binomial Regression
+```{r, echo=TRUE, eval=TRUE}
+# evidence of over-dispersion
+AER::dispersiontest(model3)
+# over disperson and under disperson
+nb_model = glm.nb(data = aveDurationData, formula = frequency ~ group + RR)
+summary(nb_model)
+aveDurationData$group = relevel(aveDurationData$group, ref = "S")
+nb_model2 = glm.nb(data = aveDurationData, formula = frequency ~ group + RR)
+summary(nb_model2)
+aveDurationData$group = relevel(aveDurationData$group, ref = "M")
+nb_model3 = glm.nb(data = aveDurationData, formula = frequency ~ group + RR)
+summary(nb_model3)
+
+
+```
+
+over-dispersion observed in our Poisson model, so we decided to fit a negative binomial regression.
